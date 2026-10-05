@@ -74,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = 8000
+    port = int(os.environ.get("PORT", 8000))
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"Dashboard is running at http://localhost:{port}")
+    print(f"Dashboard is serving on port {port}")
     server.serve_forever()
