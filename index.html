@@ -31,6 +31,19 @@
           <button id="stopCaptureBtn" class="secondary-btn">Stop</button>
         </div>
 
+        <div class="panel video-upload-panel">
+          <label for="videoFileInput">Analyze a video</label>
+          <input id="videoFileInput" type="file" accept="video/*,.mp4,.mov,.avi,.webm,.mkv,.m4v" />
+          <p id="uploadedVideoName" class="upload-note">No video selected</p>
+          <label for="videoExerciseSelect">Exercise in this video</label>
+          <select id="videoExerciseSelect">
+            <option value="squat">Squat</option>
+            <option value="pushup">Push-up</option>
+          </select>
+          <button id="analyzeVideoBtn" class="secondary-btn" disabled>Analyze video</button>
+          <p class="upload-note">Video is processed locally in your browser.</p>
+        </div>
+
         <div class="panel live-status-panel">
           <h3>Live status</h3>
           <div id="liveStatusBadge" class="status-badge idle">Idle</div>
@@ -62,24 +75,44 @@
             <video id="cameraVideo" autoplay muted playsinline></video>
             <canvas id="overlayCanvas"></canvas>
           </div>
-          <div class="live-stats-box">
-            <div class="live-stat-row">
-              <span>Current rep</span>
-              <strong id="currentRep">0</strong>
+          <aside class="live-analytics-panel" aria-label="Live exercise analytics">
+            <div class="live-panel-heading">
+              <div>
+                <p class="eyebrow">Live session</p>
+                <h2>Movement analysis</h2>
+              </div>
+              <div class="live-heading-metrics">
+                <time id="liveTimer" class="live-timer" aria-label="Elapsed session time">00:00.0</time>
+                <span id="livePhase" class="phase-indicator">Waiting</span>
+              </div>
             </div>
-            <div class="live-stat-row">
-              <span>Good reps</span>
-              <strong id="liveGood">0</strong>
+            <p id="liveFormFeedback" class="live-form-feedback waiting" aria-live="polite">Feedback will appear after your first rep.</p>
+            <div class="live-stat-grid">
+              <div class="live-stat-card"><span>Reps</span><strong id="currentRep">0</strong></div>
+              <div class="live-stat-card"><span>Good</span><strong id="liveGood">0</strong></div>
+              <div class="live-stat-card"><span>Bad</span><strong id="liveBad">0</strong></div>
+              <div class="live-stat-card"><span id="liveAngleLabel">Joint angle</span><strong id="liveAngle">--</strong></div>
             </div>
-            <div class="live-stat-row">
-              <span>Bad reps</span>
-              <strong id="liveBad">0</strong>
-            </div>
-            <div class="live-stat-row">
-              <span>State</span>
-              <strong id="liveState">Waiting</strong>
-            </div>
-          </div>
+            <section class="live-trend-section" aria-label="Live joint angle trend">
+              <div class="live-section-heading">
+                <h3>Movement trend</h3>
+                <span id="liveState">Waiting</span>
+              </div>
+              <div class="live-trend-chart"><canvas id="liveAngleChart"></canvas></div>
+            </section>
+            <section class="live-reps-section" aria-label="Recent live reps">
+              <div class="live-section-heading">
+                <h3>Recent reps</h3>
+                <span>Latest first</span>
+              </div>
+              <div class="live-reps-table-wrap">
+                <table class="live-reps-table">
+                  <thead><tr><th>Rep</th><th>Time</th><th>Angle</th><th>Result</th></tr></thead>
+                  <tbody id="liveRepRows"><tr><td colspan="4" class="empty-live-row">Reps appear here as you move.</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+          </aside>
         </section>
 
         <section class="stats-grid">

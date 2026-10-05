@@ -6,8 +6,20 @@ const state = {
   viewChart: null,
   depthChart: null,
   streamActive: false,
+  sourceMode: null,
   videoStream: null,
+  uploadedVideoUrl: null,
+  uploadedFileName: '',
   poseLandmarker: null,
+  poseModel: null,
+  lastPoseTimestamp: -1,
+  liveChart: null,
+  liveSamples: [],
+  liveRepLog: [],
+  sessionStartedAt: 0,
+  currentExerciseSeconds: 0,
+  lastSampleAt: 0,
+  liveAngle: null,
   animationId: null,
   exercise: 'squat',
   goodReps: 0,
@@ -20,6 +32,11 @@ const state = {
   maxTorsoLean: 0,
   minElbowAngle: 999,
   worstBodyAngle: 999,
+  worstBodySag: 0,
+  pushupSide: null,
+  pushupElbowSamples: [],
+  pushupBodySamples: [],
+  pushupSagSamples: [],
 };
 
 const elements = {
@@ -35,6 +52,10 @@ const elements = {
   exerciseSelect: document.getElementById('exerciseSelect'),
   startCaptureBtn: document.getElementById('startCaptureBtn'),
   stopCaptureBtn: document.getElementById('stopCaptureBtn'),
+  videoFileInput: document.getElementById('videoFileInput'),
+  uploadedVideoName: document.getElementById('uploadedVideoName'),
+  analyzeVideoBtn: document.getElementById('analyzeVideoBtn'),
+  videoExerciseSelect: document.getElementById('videoExerciseSelect'),
   liveStatusBadge: document.getElementById('liveStatusBadge'),
   liveSummary: document.getElementById('liveSummary'),
   cameraVideo: document.getElementById('cameraVideo'),
@@ -43,6 +64,12 @@ const elements = {
   liveGood: document.getElementById('liveGood'),
   liveBad: document.getElementById('liveBad'),
   liveState: document.getElementById('liveState'),
+  livePhase: document.getElementById('livePhase'),
+  liveTimer: document.getElementById('liveTimer'),
+  liveFormFeedback: document.getElementById('liveFormFeedback'),
+  liveAngle: document.getElementById('liveAngle'),
+  liveAngleLabel: document.getElementById('liveAngleLabel'),
+  liveRepRows: document.getElementById('liveRepRows'),
 };
 
 function parseCSV(text) {
@@ -280,7 +307,7 @@ async function loadSelectedFile() {
     return;
   }
 
-  renderStats(state.data);
+  if (!state.streamActive) renderStats(state.data);
   buildInsights(state.data);
   renderVerdictChart(state.data);
   renderViewChart(state.data);
@@ -293,6 +320,15 @@ function updateLiveMetrics() {
   elements.liveGood.textContent = state.goodReps;
   elements.liveBad.textContent = state.badReps;
   elements.liveState.textContent = state.liveState;
+  elements.livePhase.textContent = state.repPhase;
+  elements.liveAngle.textContent = state.liveAngle === null ? '--' : `${Math.round(state.liveAngle)}°`;
+  elements.liveTimer.textContent = formatElapsedTime(state.currentExerciseSeconds);
+
+  const successRate = state.currentRep ? (state.goodReps / state.currentRep) * 100 : 0;
+  elements.totalReps.textContent = state.currentRep;
+  elements.goodReps.textContent = state.goodReps;
+  elements.badReps.textContent = state.badReps;
+  elements.successRate.textContent = `${successRate.toFixed(1)}%`;
 }
 
 function resetTracking() {
@@ -301,7 +337,25 @@ function resetTracking() {
   state.currentRep = 0;
   state.liveState = 'Waiting';
   state.repPhase = 'UP';
+  state.pushupSide = null;
+  resetPushupSmoothing();
+  state.liveSamples = [];
+  state.liveRepLog = [];
+  state.sessionStartedAt = performance.now();
+  state.currentExerciseSeconds = 0;
+  state.lastSampleAt = 0;
+  state.liveAngle = null;
   resetRepMeasurements();
+  if (state.liveChart) {
+    state.liveChart.data.labels = [];
+    state.liveChart.data.datasets[0].data = [];
+    state.liveChart.data.datasets[0].label = 'Joint angle';
+    state.liveChart.update('none');
+  }
+  elements.liveRepRows.innerHTML = '<tr><td colspan="4" class="empty-live-row">Reps appear here as you move.</td></tr>';
+  elements.liveFormFeedback.textContent = 'Feedback will appear after your first rep.';
+  elements.liveFormFeedback.className = 'live-form-feedback waiting';
+  elements.liveAngleLabel.textContent = 'Joint angle';
   updateLiveMetrics();
 }
 
@@ -311,6 +365,7 @@ function resetRepMeasurements() {
   state.maxTorsoLean = 0;
   state.minElbowAngle = 999;
   state.worstBodyAngle = 999;
+  state.worstBodySag = 0;
 }
 
 function point(landmarks, index) {
@@ -334,15 +389,29 @@ function chooseSide(landmarks, ids) {
   return leftScore >= rightScore ? ids.left : ids.right;
 }
 
-function hasRequiredLandmarks(landmarks) {
-  if (!landmarks) return false;
-  const ids = state.exercise === 'squat'
-    ? chooseSide(landmarks, { left: [11, 23, 25, 27], right: [12, 24, 26, 28] })
-    : chooseSide(landmarks, { left: [11, 13, 15, 23, 27], right: [12, 14, 16, 24, 28] });
-  return ids.every((index) => (landmarks[index].visibility ?? 1) >= 0.5);
+function plankTilt(shoulder, ankle) {
+  return Math.atan2(Math.abs(ankle.y - shoulder.y), Math.abs(ankle.x - shoulder.x) + 1e-6) * 180 / Math.PI;
 }
 
-function drawOverlay(ctx, width, height, landmarks, poseReady) {
+function getPoseReadinessHint(landmarks) {
+  if (!landmarks) return 'No person detected';
+  const ids = state.exercise === 'squat'
+    ? chooseSide(landmarks, { left: [11, 23, 25, 27], right: [12, 24, 26, 28] })
+    : (state.pushupSide ?? chooseSide(landmarks, { left: [11, 13, 15, 23, 27], right: [12, 14, 16, 24, 28] }));
+  if (!ids.every((index) => (landmarks[index].visibility ?? 1) >= 0.5)) {
+    return state.exercise === 'pushup'
+      ? 'Show your full body from the side'
+      : 'Step back and keep your full body in frame';
+  }
+  if (state.exercise === 'pushup' && state.repPhase === 'UP') {
+    const shoulder = point(landmarks, ids[0]);
+    const ankle = point(landmarks, ids[4]);
+    if (plankTilt(shoulder, ankle) > 45) return 'Push-up: turn sideways and get into plank';
+  }
+  return '';
+}
+
+function drawOverlay(ctx, width, height, landmarks, poseHint) {
   ctx.clearRect(0, 0, width, height);
   if (landmarks) {
     const connections = [
@@ -376,8 +445,8 @@ function drawOverlay(ctx, width, height, landmarks, poseReady) {
   ctx.font = '600 16px sans-serif';
   ctx.fillStyle = '#fff';
   ctx.fillText(landmarks ? `${state.exercise === 'squat' ? 'Squat' : 'Push-up'} | ${state.repPhase}` : 'No person detected', 26, 39);
-  if (landmarks && !poseReady) {
-    const message = 'Step back and keep your full body in frame';
+  if (landmarks && poseHint) {
+    const message = poseHint;
     ctx.font = '600 16px sans-serif';
     const textWidth = ctx.measureText(message).width;
     const boxWidth = Math.min(width - 28, textWidth + 24);
@@ -388,18 +457,41 @@ function drawOverlay(ctx, width, height, landmarks, poseReady) {
   }
 }
 
-function scoreRep(verdict, feedback) {
+function scoreRep(verdict, feedback, metricLabel, metricValue) {
   state.currentRep += 1;
   state.liveState = verdict === 'good' ? 'Good' : 'Bad';
   if (verdict === 'good') state.goodReps += 1;
   else state.badReps += 1;
-  elements.currentRep.textContent = state.currentRep;
-  elements.liveGood.textContent = state.goodReps;
-  elements.liveBad.textContent = state.badReps;
-  elements.liveState.textContent = state.liveState;
+  updateLiveMetrics();
+  state.liveRepLog.unshift({
+    rep: state.currentRep,
+    time: formatElapsedTime(state.currentExerciseSeconds),
+    metric: `${metricValue.toFixed(0)}°`,
+    verdict,
+    feedback,
+  });
+  state.liveRepLog = state.liveRepLog.slice(0, 8);
+  elements.liveRepRows.innerHTML = state.liveRepLog.map((rep) => `
+    <tr>
+      <td>${rep.rep}</td>
+      <td>${rep.time}</td>
+      <td>${rep.metric}</td>
+      <td class="rep-result-cell">
+        <span class="${rep.verdict === 'good' ? 'badge-good' : 'badge-bad'}">${rep.verdict === 'good' ? 'Good' : 'Adjust'}</span>
+        ${rep.verdict === 'bad' ? `<small class="rep-feedback">${rep.feedback}</small>` : ''}
+      </td>
+    </tr>`).join('');
+  elements.liveFormFeedback.textContent = feedback;
+  elements.liveFormFeedback.className = `live-form-feedback ${verdict}`;
   updateLiveStatus(verdict === 'good' ? 'Good rep' : 'Bad rep', verdict === 'good' ? 'good' : 'bad');
   elements.liveSummary.textContent = feedback;
   resetRepMeasurements();
+}
+
+function formatElapsedTime(seconds) {
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const remainingSeconds = (seconds % 60).toFixed(1).padStart(4, '0');
+  return `${minutes}:${remainingSeconds}`;
 }
 
 function trackPoseRep(landmarks) {
@@ -413,6 +505,9 @@ function trackPoseRep(landmarks) {
     const knee = point(landmarks, kneeId);
     const ankle = point(landmarks, ankleId);
     const kneeAngle = jointAngle(hip, knee, ankle);
+    state.liveAngle = kneeAngle;
+    elements.liveAngleLabel.textContent = 'Knee angle';
+    recordLiveSample(kneeAngle, 'Knee angle');
     const thighAngle = Math.atan2(knee.y - hip.y, Math.abs(knee.x - hip.x) + 1e-6) * 180 / Math.PI;
     const torsoLean = Math.acos(Math.max(-1, Math.min(1, (hip.y - shoulder.y) / (Math.hypot(shoulder.x - hip.x, shoulder.y - hip.y) || 1)))) * 180 / Math.PI;
 
@@ -430,13 +525,15 @@ function trackPoseRep(landmarks) {
         if (state.minThighAngle > 35) issues.push('Half squat: go deeper.');
         else if (state.minThighAngle > 20) issues.push('Almost: go a little lower.');
         if (state.maxTorsoLean > 45) issues.push('Keep your chest up.');
-        scoreRep(issues.length ? 'bad' : 'good', issues.length ? issues.join(' ') : 'Good squat rep detected.');
+        scoreRep(issues.length ? 'bad' : 'good', issues.length ? issues.join(' ') : 'Good squat rep detected.', 'Knee angle', state.minKneeAngle);
       }
     }
     return;
   }
 
-  const ids = chooseSide(landmarks, { left: [11, 13, 15, 23, 27], right: [12, 14, 16, 24, 28] });
+  const ids = state.repPhase === 'DOWN' && state.pushupSide
+    ? state.pushupSide
+    : chooseSide(landmarks, { left: [11, 13, 15, 23, 27], right: [12, 14, 16, 24, 28] });
   const [shoulderId, elbowId, wristId, hipId, ankleId] = ids;
   if (![shoulderId, elbowId, wristId, hipId, ankleId].every(visible)) return;
   const shoulder = point(landmarks, shoulderId);
@@ -444,48 +541,150 @@ function trackPoseRep(landmarks) {
   const wrist = point(landmarks, wristId);
   const hip = point(landmarks, hipId);
   const ankle = point(landmarks, ankleId);
-  const elbowAngle = jointAngle(shoulder, elbow, wrist);
-  const bodyAngle = jointAngle(shoulder, hip, ankle);
+  if (state.repPhase === 'UP') {
+    state.pushupSide = ids;
+    if (plankTilt(shoulder, ankle) > 45) {
+      resetPushupSmoothing();
+      state.pushupSide = null;
+      return;
+    }
+  }
+
+  const rawElbowAngle = jointAngle(shoulder, elbow, wrist);
+  const alignment = bodyAlignment(shoulder, hip, ankle);
+  const elbowAngle = smoothSample(state.pushupElbowSamples, rawElbowAngle);
+  const bodyAngle = smoothSample(state.pushupBodySamples, alignment.angle);
+  const bodySag = smoothSample(state.pushupSagSamples, alignment.sag);
+  state.liveAngle = elbowAngle;
+  elements.liveAngleLabel.textContent = 'Elbow angle';
+  recordLiveSample(elbowAngle, 'Elbow angle');
 
   if (state.repPhase === 'UP' && elbowAngle < 140) {
     state.repPhase = 'DOWN';
     resetRepMeasurements();
+    state.pushupSide = ids;
   }
   if (state.repPhase === 'DOWN') {
     state.minElbowAngle = Math.min(state.minElbowAngle, elbowAngle);
-    state.worstBodyAngle = Math.min(state.worstBodyAngle, bodyAngle);
+    if (bodyAngle < state.worstBodyAngle) {
+      state.worstBodyAngle = bodyAngle;
+      state.worstBodySag = bodySag;
+    }
     if (elbowAngle > 155) {
       state.repPhase = 'UP';
       const issues = [];
       if (state.minElbowAngle > 115) issues.push('Half rep: lower further.');
       else if (state.minElbowAngle > 100) issues.push('Almost: lower a little more.');
-      if (state.worstBodyAngle < 165) issues.push('Keep your body straight.');
-      scoreRep(issues.length ? 'bad' : 'good', issues.length ? issues.join(' ') : 'Good push-up rep detected.');
+      if (state.worstBodyAngle < 165) {
+        issues.push(state.worstBodySag > 0 ? 'Hips sagging: tighten your core.' : 'Hips too high: lower your hips.');
+      }
+      scoreRep(issues.length ? 'bad' : 'good', issues.length ? issues.join(' ') : 'Good push-up rep detected.', 'Elbow angle', state.minElbowAngle);
+      state.pushupSide = null;
     }
   }
 }
 
+function bodyAlignment(shoulder, hip, ankle) {
+  const angle = jointAngle(shoulder, hip, ankle);
+  const dx = ankle.x - shoulder.x;
+  if (Math.abs(dx) < 1e-6) return { angle, sag: 0 };
+  const lineY = shoulder.y + ((hip.x - shoulder.x) * (ankle.y - shoulder.y)) / dx;
+  return { angle, sag: hip.y - lineY };
+}
+
+function smoothSample(samples, value) {
+  samples.push(value);
+  if (samples.length > 5) samples.shift();
+  return samples.reduce((sum, sample) => sum + sample, 0) / samples.length;
+}
+
+function resetPushupSmoothing() {
+  state.pushupElbowSamples = [];
+  state.pushupBodySamples = [];
+  state.pushupSagSamples = [];
+}
+
+function recordLiveSample(angle, label) {
+  const now = performance.now();
+  if (!state.liveChart || now - state.lastSampleAt < 140) return;
+  state.lastSampleAt = now;
+  state.liveSamples.push({ time: (now - state.sessionStartedAt) / 1000, angle });
+  state.liveSamples = state.liveSamples.slice(-80);
+  state.liveChart.data.labels = state.liveSamples.map((sample) => sample.time.toFixed(1));
+  state.liveChart.data.datasets[0].label = label;
+  state.liveChart.data.datasets[0].data = state.liveSamples.map((sample) => sample.angle);
+  state.liveChart.update('none');
+}
+
+function createLiveChart() {
+  const ctx = document.getElementById('liveAngleChart');
+  state.liveChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Joint angle',
+        data: [],
+        borderColor: '#57d5ff',
+        backgroundColor: 'rgba(87, 213, 255, 0.12)',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.28,
+        fill: true,
+      }],
+    },
+    options: {
+      animation: false,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: '#9ab0d0', maxTicksLimit: 5, maxRotation: 0 },
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          title: { display: true, text: 'Time (s)', color: '#9ab0d0', font: { size: 10 } },
+        },
+        y: {
+          min: 0,
+          max: 180,
+          ticks: { color: '#9ab0d0', stepSize: 90 },
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          title: { display: true, text: 'Angle (°)', color: '#9ab0d0', font: { size: 10 } },
+        },
+      },
+    },
+  });
+}
+
 async function ensurePoseLandmarker() {
-  if (state.poseLandmarker) return;
+  const model = state.exercise === 'pushup' ? 'full' : 'lite';
+  if (state.poseLandmarker && state.poseModel === model) return;
+  if (state.poseLandmarker) {
+    state.poseLandmarker.close();
+    state.poseLandmarker = null;
+  }
   const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
   const visionFiles = await vision.FilesetResolver.forVisionTasks(
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm',
   );
   state.poseLandmarker = await vision.PoseLandmarker.createFromOptions(visionFiles, {
     baseOptions: {
-      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+      modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${model}/float16/1/pose_landmarker_${model}.task`,
     },
     runningMode: 'VIDEO',
     numPoses: 1,
     minPoseDetectionConfidence: 0.6,
     minTrackingConfidence: 0.6,
   });
+  state.poseModel = model;
 }
 
 async function startCapture() {
-  if (state.streamActive) return;
+  if (state.streamActive) stopCapture();
+  clearVideoSource();
 
   state.exercise = elements.exerciseSelect.value;
+  state.sourceMode = 'camera';
+  state.lastPoseTimestamp = -1;
   elements.exerciseBadge.textContent = state.exercise === 'squat' ? 'Squat' : 'Push-up';
   resetTracking();
   updateLiveStatus('Ready', 'idle');
@@ -503,6 +702,8 @@ async function startCapture() {
     state.videoStream = stream;
     elements.cameraVideo.srcObject = stream;
     await elements.cameraVideo.play();
+    state.sessionStartedAt = performance.now();
+    state.currentExerciseSeconds = 0;
     document.querySelector('.camera-wrap').style.aspectRatio =
       `${elements.cameraVideo.videoWidth} / ${elements.cameraVideo.videoHeight}`;
     state.streamActive = true;
@@ -514,16 +715,76 @@ async function startCapture() {
   }
 }
 
-function stopCapture() {
-  state.streamActive = false;
-  if (state.animationId) cancelAnimationFrame(state.animationId);
+function clearVideoSource() {
+  const video = elements.cameraVideo;
+  video.pause();
   if (state.videoStream) {
     state.videoStream.getTracks().forEach((track) => track.stop());
     state.videoStream = null;
   }
-  if (elements.cameraVideo) {
-    elements.cameraVideo.srcObject = null;
+  video.srcObject = null;
+  if (state.uploadedVideoUrl) {
+    URL.revokeObjectURL(state.uploadedVideoUrl);
+    state.uploadedVideoUrl = null;
   }
+  video.removeAttribute('src');
+  video.load();
+  video.controls = false;
+  document.querySelector('.camera-wrap').style.aspectRatio = '16 / 9';
+}
+
+async function analyzeUploadedVideo() {
+  const file = elements.videoFileInput.files[0];
+  if (!file) return;
+  if (state.streamActive) stopCapture();
+  else clearVideoSource();
+
+  state.exercise = elements.videoExerciseSelect.value;
+  state.sourceMode = 'file';
+  state.lastPoseTimestamp = -1;
+  state.uploadedFileName = file.name;
+  elements.exerciseBadge.textContent = state.exercise === 'squat' ? 'Squat' : 'Push-up';
+  resetTracking();
+  updateLiveStatus('Preparing video', 'idle');
+  elements.liveSummary.textContent = `Loading ${file.name} for analysis.`;
+
+  try {
+    await ensurePoseLandmarker();
+    const video = elements.cameraVideo;
+    state.uploadedVideoUrl = URL.createObjectURL(file);
+    video.controls = false;
+    video.muted = true;
+    video.src = state.uploadedVideoUrl;
+    if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
+      await new Promise((resolve, reject) => {
+        video.addEventListener('loadedmetadata', resolve, { once: true });
+        video.addEventListener('error', () => reject(new Error('The selected video could not be loaded.')), { once: true });
+      });
+    }
+    document.querySelector('.camera-wrap').style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    await video.play();
+    state.sessionStartedAt = performance.now();
+    state.currentExerciseSeconds = 0;
+    state.streamActive = true;
+    updateLiveStatus('Analyzing video', 'idle');
+    elements.liveSummary.textContent = `Analyzing ${file.name}.`;
+    processFrames();
+  } catch (error) {
+    console.error(error);
+    state.streamActive = false;
+    clearVideoSource();
+    state.sourceMode = null;
+    updateLiveStatus('Video error', 'bad');
+    elements.liveSummary.textContent = 'Could not play this video. Try a supported MP4, MOV, WebM, or AVI file.';
+  }
+}
+
+function stopCapture() {
+  state.streamActive = false;
+  if (state.animationId) cancelAnimationFrame(state.animationId);
+  state.animationId = null;
+  clearVideoSource();
+  state.sourceMode = null;
   const ctx = elements.overlayCanvas.getContext('2d');
   ctx.clearRect(0, 0, elements.overlayCanvas.width, elements.overlayCanvas.height);
   updateLiveStatus('Idle', 'idle');
@@ -545,12 +806,45 @@ function processFrames() {
   canvas.width = width;
   canvas.height = height;
 
-  const result = state.poseLandmarker.detectForVideo(video, performance.now());
+  const timestamp = state.sourceMode === 'file' ? video.currentTime * 1000 : performance.now();
+  if (state.sourceMode === 'file' && timestamp <= state.lastPoseTimestamp) {
+    state.animationId = requestAnimationFrame(processFrames);
+    return;
+  }
+  state.lastPoseTimestamp = timestamp;
+  state.currentExerciseSeconds = state.sourceMode === 'file'
+    ? video.currentTime
+    : (timestamp - state.sessionStartedAt) / 1000;
+  elements.liveTimer.textContent = formatElapsedTime(state.currentExerciseSeconds);
+  const result = state.poseLandmarker.detectForVideo(video, timestamp);
   const landmarks = result.landmarks?.[0] ?? null;
-  const poseReady = hasRequiredLandmarks(landmarks);
-  if (poseReady) trackPoseRep(landmarks);
-  drawOverlay(ctx, width, height, landmarks, poseReady);
+  const poseHint = getPoseReadinessHint(landmarks);
+  const poseReady = !poseHint;
+  if (poseReady) {
+    trackPoseRep(landmarks);
+    elements.livePhase.textContent = state.repPhase;
+    elements.liveAngle.textContent = state.liveAngle === null ? '--' : `${Math.round(state.liveAngle)}°`;
+  } else if (!landmarks) {
+    elements.livePhase.textContent = 'No pose';
+    elements.liveAngle.textContent = '--';
+  } else {
+    elements.livePhase.textContent = 'Reframe';
+    elements.liveAngle.textContent = '--';
+  }
+  drawOverlay(ctx, width, height, landmarks, poseHint);
   state.animationId = requestAnimationFrame(processFrames);
+}
+
+function finishUploadedVideo() {
+  if (state.sourceMode !== 'file') return;
+  state.streamActive = false;
+  if (state.animationId) cancelAnimationFrame(state.animationId);
+  state.animationId = null;
+  state.liveState = 'Complete';
+  elements.liveState.textContent = 'Complete';
+  elements.livePhase.textContent = 'Complete';
+  updateLiveStatus('Video complete', 'idle');
+  elements.liveSummary.textContent = `Finished analyzing ${state.uploadedFileName}.`;
 }
 
 async function initDashboard() {
@@ -560,8 +854,21 @@ async function initDashboard() {
     console.error('CSV load failed', error);
   }
 
+  createLiveChart();
+
   elements.startCaptureBtn.addEventListener('click', startCapture);
   elements.stopCaptureBtn.addEventListener('click', stopCapture);
+  elements.videoFileInput.addEventListener('change', () => {
+    const file = elements.videoFileInput.files[0];
+    elements.uploadedVideoName.textContent = file ? file.name : 'No video selected';
+    elements.analyzeVideoBtn.disabled = !file;
+    if (file) {
+      updateLiveStatus('Video ready', 'idle');
+      elements.liveSummary.textContent = 'Choose an exercise, then analyze this video.';
+    }
+  });
+  elements.analyzeVideoBtn.addEventListener('click', analyzeUploadedVideo);
+  elements.cameraVideo.addEventListener('ended', finishUploadedVideo);
   elements.exerciseSelect.addEventListener('change', (event) => {
     state.exercise = event.target.value;
     elements.exerciseBadge.textContent = state.exercise === 'squat' ? 'Squat' : 'Push-up';

@@ -41,6 +41,7 @@ select {
   margin: 0 auto;
   display: grid;
   grid-template-columns: 300px 1fr;
+  min-width: 0;
   gap: 24px;
 }
 
@@ -105,6 +106,10 @@ select {
   margin-bottom: 18px;
 }
 
+.video-upload-panel {
+  margin-bottom: 18px;
+}
+
 .filter-panel label {
   display: block;
   margin-bottom: 10px;
@@ -131,6 +136,42 @@ select option {
 select:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+#videoFileInput {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  font-size: 0.76rem;
+}
+
+#videoFileInput::file-selector-button {
+  margin-right: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.upload-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.video-upload-panel .secondary-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .primary-btn,
@@ -230,6 +271,7 @@ select:focus-visible {
 }
 
 .main-panel {
+  min-width: 0;
   padding: 26px 26px 26px;
 }
 
@@ -257,13 +299,18 @@ select:focus-visible {
 
 .live-capture-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 230px;
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.9fr);
+  gap: 18px;
+  align-items: stretch;
   margin-bottom: 24px;
 }
 
 .camera-wrap {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  max-height: min(72vh, 680px);
+  align-self: start;
   background: #050b14;
   border: 1px solid var(--line);
   border-radius: 20px;
@@ -286,34 +333,171 @@ select:focus-visible {
   pointer-events: none;
 }
 
-.live-stats-box {
-  background: rgba(255, 255, 255, 0.02);
+.live-analytics-panel {
+  min-width: 0;
+  background: rgba(9, 15, 26, 0.72);
   border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
+  border-radius: 14px;
+  padding: 16px;
+  display: grid;
+  grid-template-rows: auto auto minmax(150px, 1fr) auto;
   gap: 14px;
 }
 
-.live-stat-row {
+.live-panel-heading,
+.live-section-heading {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
+  gap: 12px;
 }
 
-.live-stat-row:last-child {
-  border-bottom: none;
+.live-heading-metrics {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
-.live-stat-row span {
+.live-form-feedback {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
-.live-stat-row strong {
+.live-form-feedback.good {
+  border-color: rgba(48, 213, 124, 0.28);
+  background: rgba(48, 213, 124, 0.08);
+  color: #8ff0b8;
+}
+
+.live-form-feedback.bad {
+  border-color: rgba(255, 107, 107, 0.3);
+  background: rgba(255, 107, 107, 0.08);
+  color: #ffaaaa;
+}
+
+.live-timer {
+  color: #7fe0ff;
   font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.live-panel-heading h2 {
+  margin: 5px 0 0;
+  font-size: 1.05rem;
+}
+
+.phase-indicator {
+  flex: none;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(124, 156, 255, 0.12);
+  color: #bfd0ff;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.live-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.live-stat-card {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.live-stat-card span,
+.live-section-heading span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.live-stat-card strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 1.25rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-trend-section,
+.live-reps-section {
+  min-width: 0;
+}
+
+.live-section-heading {
+  margin-bottom: 8px;
+}
+
+.live-section-heading h3 {
+  margin: 0;
+  font-size: 0.83rem;
+}
+
+.live-trend-chart {
+  height: 178px;
+  min-width: 0;
+}
+
+.live-reps-table-wrap {
+  max-height: 132px;
+  overflow: auto;
+}
+
+.live-reps-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.live-reps-table th,
+.live-reps-table td {
+  padding: 7px 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.live-reps-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.live-reps-table .rep-result-cell {
+  min-width: 120px;
+  white-space: normal;
+}
+
+.rep-feedback {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.67rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.empty-live-row {
+  color: var(--muted);
+  text-align: center;
 }
 
 .stats-grid {
@@ -429,11 +613,15 @@ tbody tr:hover {
 
 @media (max-width: 1080px) {
   .dashboard-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .live-capture-panel {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+  }
+
+  .live-analytics-panel {
+    grid-template-rows: auto auto auto auto;
   }
 
   .stats-grid {
@@ -461,5 +649,9 @@ tbody tr:hover {
 
   .camera-wrap {
     aspect-ratio: 16 / 9;
+  }
+
+  .live-capture-panel {
+    grid-template-columns: 1fr;
   }
 }
