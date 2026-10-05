@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FitForm Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">F</div>
+          <div>
+            <p class="eyebrow">Performance</p>
+            <h2>FitForm</h2>
+          </div>
+        </div>
+
+        <div class="panel filter-panel">
+          <label for="exerciseSelect">Exercise</label>
+          <select id="exerciseSelect">
+            <option value="squat">Squat</option>
+            <option value="pushup">Push-up</option>
+          </select>
+          <button id="startCaptureBtn" class="primary-btn">Start Live Capture</button>
+          <button id="stopCaptureBtn" class="secondary-btn">Stop</button>
+        </div>
+
+        <div class="panel live-status-panel">
+          <h3>Live status</h3>
+          <div id="liveStatusBadge" class="status-badge idle">Idle</div>
+          <p id="liveSummary">Waiting to start the capture.</p>
+        </div>
+
+        <div class="panel filter-panel">
+          <label for="fileSelect">Saved session file</label>
+          <select id="fileSelect"></select>
+        </div>
+
+        <div class="panel insights-panel">
+          <h3>Insights</h3>
+          <ul id="insightsList"></ul>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Dashboard</p>
+            <h1>Exercise Performance Overview</h1>
+          </div>
+          <div class="status-pill" id="exerciseBadge">-</div>
+        </header>
+
+        <section class="live-capture-panel">
+          <div class="camera-wrap">
+            <video id="cameraVideo" autoplay muted playsinline></video>
+            <canvas id="overlayCanvas"></canvas>
+          </div>
+          <div class="live-stats-box">
+            <div class="live-stat-row">
+              <span>Current rep</span>
+              <strong id="currentRep">0</strong>
+            </div>
+            <div class="live-stat-row">
+              <span>Good reps</span>
+              <strong id="liveGood">0</strong>
+            </div>
+            <div class="live-stat-row">
+              <span>Bad reps</span>
+              <strong id="liveBad">0</strong>
+            </div>
+            <div class="live-stat-row">
+              <span>State</span>
+              <strong id="liveState">Waiting</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="stats-grid">
+          <div class="stat-card accent-card">
+            <span>Total Reps</span>
+            <strong id="totalReps">0</strong>
+          </div>
+          <div class="stat-card success-card">
+            <span>Good Reps</span>
+            <strong id="goodReps">0</strong>
+          </div>
+          <div class="stat-card danger-card">
+            <span>Bad Reps</span>
+            <strong id="badReps">0</strong>
+          </div>
+          <div class="stat-card neutral-card">
+            <span>Success Rate</span>
+            <strong id="successRate">0%</strong>
+          </div>
+        </section>
+
+        <section class="charts-grid">
+          <div class="chart-card wide-chart">
+            <div class="card-header">
+              <h3>Verdict distribution</h3>
+            </div>
+            <canvas id="verdictChart"></canvas>
+          </div>
+
+          <div class="chart-card">
+            <div class="card-header">
+              <h3>View breakdown</h3>
+            </div>
+            <canvas id="viewChart"></canvas>
+          </div>
+        </section>
+
+        <section class="charts-grid lower-grid">
+          <div class="chart-card wide-chart">
+            <div class="card-header">
+              <h3>Depth trend</h3>
+            </div>
+            <canvas id="depthChart"></canvas>
+          </div>
+        </section>
+
+        <section class="table-card">
+          <div class="card-header">
+            <h3>Rep details</h3>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr id="tableHead"></tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
